@@ -327,7 +327,7 @@ class PlayerActivity : AppCompatActivity() {
      * Klucz sortowania naturalnego — uwzględnia liczby w nazwie pliku.
      * Przykład: "video2.mp4" < "video10.mp4"
      */
-    private fun naturalSortKey(filename: String): List<Comparable<*>> {
+    private fun naturalSortKey(filename: String): NaturalSortKey {
         val lower = filename.lowercase(Locale.ROOT)
         val parts = mutableListOf<Comparable<*>>()
         val regex = Regex("(\\d+)")
@@ -346,7 +346,25 @@ class PlayerActivity : AppCompatActivity() {
         if (lastEnd < lower.length) {
             parts.add(lower.substring(lastEnd))
         }
-        return parts
+        return NaturalSortKey(parts)
+    }
+
+    private class NaturalSortKey(private val parts: List<Comparable<*>>) : Comparable<NaturalSortKey> {
+        override fun compareTo(other: NaturalSortKey): Int {
+            for (i in 0 until minOf(parts.size, other.parts.size)) {
+                val a = parts[i]
+                val b = other.parts[i]
+                @Suppress("UNCHECKED_CAST")
+                val cmp = when {
+                    a is String && b is String -> a.compareTo(b)
+                    a is Long && b is Long -> a.compareTo(b)
+                    a is String -> -1  // tekst przed liczbą
+                    else -> 1
+                }
+                if (cmp != 0) return cmp
+            }
+            return parts.size.compareTo(other.parts.size)
+        }
     }
 
     private fun loadMedia(files: List<DocumentFile>) {
