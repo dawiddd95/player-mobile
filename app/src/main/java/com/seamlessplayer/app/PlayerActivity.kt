@@ -57,7 +57,7 @@ class PlayerActivity : AppCompatActivity() {
             "wma", "m4a", "webm", "3gp", "ts", "m2ts"
         )
 
-        private const val HIDE_CONTROLS_DELAY = 3000L
+        private const val HIDE_CONTROLS_DELAY = 2000L
     }
 
     // --- Player ---
@@ -147,6 +147,7 @@ class PlayerActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         hideHandler.removeCallbacks(hideRunnable)
+        playHandler.removeCallbacksAndMessages(null)
         player.release()
         audioPlayer?.release()
     }
@@ -222,8 +223,6 @@ class PlayerActivity : AppCompatActivity() {
                     btnPlayPause.text = getString(R.string.pause)
                     statusLabel.text = if (isMuted) getString(R.string.playing_muted)
                                         else getString(R.string.playing)
-                    // W pełnym ekranie zacznij ukrywanie kontrolek
-                    if (isFullscreen) scheduleHideControls()
                 } else {
                     if (player.playbackState != Player.STATE_ENDED) {
                         btnPlayPause.text = getString(R.string.resume)
@@ -246,8 +245,13 @@ class PlayerActivity : AppCompatActivity() {
     private fun initGestureDetector() {
         val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                // Pojedyncze kliknięcie pokazuje/ukrywa kontrolki
-                if (controlsVisible) hideControls() else showControls()
+                if (controlsVisible) {
+                    // Ukryj od razu
+                    hideControls()
+                } else {
+                    // Pokaż na 2 sekundy
+                    showControlsTemporarily()
+                }
                 return true
             }
 
@@ -399,15 +403,11 @@ class PlayerActivity : AppCompatActivity() {
         updateInfoLabel()
         updateFileCounter()
         statusLabel.text = getString(R.string.loaded_files_format, mediaFiles.size)
+        btnPlayPause.text = getString(R.string.play)
 
-        // Rozpocznij odtwarzanie po 1 sekundzie
-        Handler(Looper.getMainLooper()).postDelayed({
-            player.play()
-            // Rozpocznij muzykę w tle jeśli jest załadowana
-            audioPlayer?.let {
-                if (backgroundAudioUri != null) it.play()
-            }
-        }, 1000)
+        // Pokaż pasek kontrolek od razu (bez auto-play)
+        showControls()
+        hideHandler.removeCallbacks(hideRunnable)
     }
 
     // =========================================================================
@@ -467,6 +467,8 @@ class PlayerActivity : AppCompatActivity() {
     // Playback Controls
     // =========================================================================
 
+    private val playHandler = Handler(Looper.getMainLooper())
+
     private fun togglePlayPause() {
         if (mediaFiles.isEmpty()) {
             Toast.makeText(this, getString(R.string.no_files), Toast.LENGTH_SHORT).show()
@@ -476,16 +478,29 @@ class PlayerActivity : AppCompatActivity() {
         if (player.isPlaying) {
             player.pause()
             audioPlayer?.pause()
+            playHandler.removeCallbacksAndMessages(null)
             btnPlayPause.text = getString(R.string.resume)
             statusLabel.text = getString(R.string.paused)
+            // Pokaż pasek po pauzie
+            showControls()
+            hideHandler.removeCallbacks(hideRunnable)
         } else {
-            player.play()
-            audioPlayer?.let {
-                if (backgroundAudioUri != null) it.play()
-            }
-            btnPlayPause.text = getString(R.string.pause)
-            statusLabel.text = if (isMuted) getString(R.string.playing_muted)
-                                else getString(R.string.playing)
+            // Ukryj pasek od razu
+            controlsPanel.visibility = View.GONE
+            controlsVisible = false
+
+            // Odtwarzaj po 5 sekundach
+            statusLabel.text = "Start za 5s…"
+            playHandler.removeCallbacksAndMessages(null)
+            playHandler.postDelayed({
+                player.play()
+                audioPlayer?.let {
+                    if (backgroundAudioUri != null) it.play()
+                }
+                btnPlayPause.text = getString(R.string.pause)
+                statusLabel.text = if (isMuted) getString(R.string.playing_muted)
+                                    else getString(R.string.playing)
+            }, 5000)
         }
     }
 
@@ -514,29 +529,33 @@ class PlayerActivity : AppCompatActivity() {
             windowInsetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             btnFullscreen.text = getString(R.string.window_mode)
-            // Ukryj kontrolki po chwili
-            scheduleHideControls()
+            // Pokaż pasek tymczasowo
+            showControlsTemporarily()
         } else {
             // Pokaż system bars
             windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
             btnFullscreen.text = getString(R.string.fullscreen)
-            // Pokaż kontrolki
-            showControls()
-            hideHandler.removeCallbacks(hideRunnable)
+            // Pokaż kontrolki tymczasowo
+            showControlsTemporarily()
         }
     }
 
     private fun showControls() {
         controlsPanel.visibility = View.VISIBLE
         controlsVisible = true
-        if (isFullscreen) scheduleHideControls()
+        hideHandler.removeCallbacks(hideRunnable)
+    }
+
+    private fun showControlsTemporarily() {
+        controlsPanel.visibility = View.VISIBLE
+        controlsVisible = true
+        scheduleHideControls()
     }
 
     private fun hideControls() {
-        if (isFullscreen) {
-            controlsPanel.visibility = View.GONE
-            controlsVisible = false
-        }
+        controlsPanel.visibility = View.GONE
+        controlsVisible = false
+        hideHandler.removeCallbacks(hideRunnable)
     }
 
     private fun scheduleHideControls() {
