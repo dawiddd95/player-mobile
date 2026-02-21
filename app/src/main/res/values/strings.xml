@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Seamless Player</string>
+    <string name="choose_player_title">Wybierz, który wariant\nodtwarzacza uruchomić:</string>
+    <string name="btn_standard">Odtwarzacz standardowy\n(sortuje po nazwie 1, 2, 10)</string>
+    <string name="btn_windows_sort">Odtwarzacz z sortowaniem\njak w Windows (sortuje 1, 10, 2)</string>
+    <string name="btn_muted">Wideo bez dźwięku\n(sortowanie jak w Windows)</string>
+    <string name="select_directory">📁 Wybierz katalog</string>
+    <string name="select_audio">🎵 Muzyka w tle</string>
+    <string name="play">▶ Play</string>
+    <string name="pause">⏸ Pauza</string>
+    <string name="resume">▶ Wznów</string>
+    <string name="stop">⏹ Stop</string>
+    <string name="fullscreen">⛶ Pełny ekran</string>
+    <string name="window_mode">⛶ Okno</string>
+    <string name="loop_on">🔁 Zapętlanie: ON</string>
+    <string name="loop_off">🔁 Zapętlanie: OFF</string>
+    <string name="random_on">🔀 Losowo: ON</string>
+    <string name="random_off">🔀 Losowo: OFF</string>
+    <string name="goto_file">⏩ Przejdź do</string>
+    <string name="ready">Gotowy do odtwarzania</string>
+    <string name="ready_muted">Gotowy do odtwarzania (bez dźwięku)</string>
+    <string name="no_files">Brak plików do odtworzenia!</string>
+    <string name="no_media_found">Nie znaleziono plików multimedialnych w wybranym katalogu</string>
+    <string name="error">Błąd</string>
+    <string name="playing">Odtwarzanie…</string>
+    <string name="playing_muted">Odtwarzanie… (bez dźwięku)</string>
+    <string name="paused">Wstrzymano</string>
+    <string name="stopped">Zatrzymano</string>
+    <string name="file_counter_format">%1$d / %2$d</string>
+    <string name="files_info_format">Plików: %1$d | Zapętlanie: %2$s | Losowo: %3$s</string>
+    <string name="directory_none">Katalog: Nie wybrano</string>
+    <string name="directory_format">Katalog: %1$s</string>
+    <string name="audio_none">Muzyka: Brak</string>
+    <string name="audio_format">Muzyka: %1$s</string>
+    <string name="goto_dialog_title">Przejdź do pliku</string>
+    <string name="goto_dialog_message">Podaj numer pliku (1 – %1$d):</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Anuluj</string>
+    <string name="loaded_files_format">Załadowano %1$d plików</string>
+    <string name="title_standard">Seamless Player — sortowanie naturalne</string>
+    <string name="title_windows">Seamless Player — sortowanie jak Windows</string>
+    <string name="title_muted">Seamless Player — bez dźwięku</string>
+</resources>
+
