@@ -3,9 +3,10 @@ name: Build APK
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -32,14 +33,17 @@ jobs:
       - name: Build Release APK
         run: gradle assembleRelease
 
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Rename APKs
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/SeamlessPlayer-debug.apk
+          mv app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/SeamlessPlayer-release.apk
 
-      - name: Upload Release APK
-        uses: actions/upload-artifact@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: app-release
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          tag_name: build-${{ github.run_number }}
+          name: Build #${{ github.run_number }}
+          body: "Automatic build from commit ${{ github.sha }}"
+          files: |
+            app/build/outputs/apk/debug/SeamlessPlayer-debug.apk
+            app/build/outputs/apk/release/SeamlessPlayer-release.apk
