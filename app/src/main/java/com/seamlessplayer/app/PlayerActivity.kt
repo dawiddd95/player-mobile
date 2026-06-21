@@ -24,11 +24,14 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.ui.PlayerView
 import com.google.android.material.button.MaterialButton
 import java.text.Collator
 import java.util.Locale
+import java.util.concurrent.Executors
 
 /**
  * Odtwarzacz multimedialny — odpowiednik player.py / playerMute.py
@@ -58,6 +61,20 @@ class PlayerActivity : AppCompatActivity() {
         )
 
         private const val HIDE_CONTROLS_DELAY = 2000L
+
+        // --- Bufor / prefetch: tu naprawiamy dlawienie przy zmianie pliku ---
+        // Min. ile ms trzyma w buforze zanim zacznie odtwarzac / kontynuowac po rebufferze
+        private const val MIN_BUFFER_MS = 30_000
+        // Max. ile ms moze zbuforowac z wyprzedzeniem (kolejny plik tez sie tu liczy)
+        private const val MAX_BUFFER_MS = 60_000
+        // Ile ms bufora wymagane by ZACZAC odtwarzanie pierwszego/po seeku
+        private const val BUFFER_FOR_PLAYBACK_MS = 1_500
+        // Ile ms bufora wymagane by wznowic PO rebufferingu (mniejsze = szybszy powrot)
+        private const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 3_000
+        // Ile plikow w przod prefetchowac do pamieci/cache przed tym jak ExoPlayer ich zazada
+        private const val PREFETCH_AHEAD_COUNT = 2
+        // Ile bajtow z kazdego pliku wstepnie wczytac (analogicznie do PrefetchWorker w pythonie)
+        private const val PREFETCH_CHUNK_BYTES = 512 * 1024
     }
 
     // --- Player ---
@@ -95,6 +112,10 @@ class PlayerActivity : AppCompatActivity() {
 
     private val hideHandler = Handler(Looper.getMainLooper())
     private val hideRunnable = Runnable { hideControls() }
+
+    // --- Prefetch (analogiczne do PrefetchWorker / rolling prefetch w player_mpv.py) ---
+    private val prefetchExecutor = Executors.newSingleThreadExecutor()
+    private val prefetchedIndices = mutableSetOf<Int>()
 
     // --- Activity Result Launchers ---
     private val pickDirectory =
@@ -148,6 +169,7 @@ class PlayerActivity : AppCompatActivity() {
         super.onDestroy()
         hideHandler.removeCallbacks(hideRunnable)
         playHandler.removeCallbacksAndMessages(null)
+        prefetchExecutor.shutdownNow()
         player.release()
         audioPlayer?.release()
     }
@@ -187,8 +209,35 @@ class PlayerActivity : AppCompatActivity() {
 
     @OptIn(UnstableApi::class)
     private fun initPlayer() {
-        player = ExoPlayer.Builder(this).build()
+        // Wlasny LoadControl - domyslny ExoPlayer ma zbyt male bufory, dlatego
+        // przy przejsciu na kolejny plik (zwlaszcza z SAF/ContentResolver, czyli
+        // wolniejszy odczyt niz lokalny plik) brakuje czasu na zbuforowanie i
+        // wystepuje dlawienie. Wieksze MIN/MAX_BUFFER_MS daje ExoPlayerowi wiecej
+        // miejsca by buforowac kolejny element z playlisty z wyprzedzeniem.
+        val loadControl = DefaultLoadControl.Builder()
+            .setAllocator(DefaultAllocator(true, 16 * 1024))
+            .setBufferDurationsMs(
+                MIN_BUFFER_MS,
+                MAX_BUFFER_MS,
+                BUFFER_FOR_PLAYBACK_MS,
+                BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        player = ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
+            // Daje wiecej czasu dekoderowi na "join" przy zmianie pliku zamiast
+            // ucinac/zrzucac klatki kiedy nastepny plik nie jest jeszcze w 100% gotowy
+            .setSeekBackIncrementMs(5_000)
+            .setSeekForwardIncrementMs(5_000)
+            .build()
         playerView.player = player
+
+        // ExoPlayer ma wbudowany prefetch nastepnego elementu playlisty, ale trzeba
+        // mu na to dac szanse - foreground mode trzyma zasoby gotowe nawet gdy
+        // aktywnosc nie jest w pierwszym planie renderowania
+        player.setForegroundMode(true)
 
         // Wycisz wideo jeśli tryb bez dźwięku
         if (isMuted) {
@@ -238,8 +287,40 @@ class PlayerActivity : AppCompatActivity() {
                     val name = mediaNames[idx]
                     statusLabel.text = if (isMuted) "▶ $name (bez dźwięku)" else "▶ $name"
                 }
+                // Rolling prefetch - przy kazdym przejsciu doladuj kolejne pliki w przod,
+                // tak jak _rolling_prefetch w player_mpv.py
+                prefetchAhead(idx)
             }
         })
+    }
+
+    /**
+     * Wczytuje poczatkowe bajty z najblizszych plikow w przod, zeby trafily do
+     * cache systemowego/ContentResolvera przed tym jak ExoPlayer ich zazada.
+     * Odpowiednik PrefetchWorker / _rolling_prefetch z player_mpv.py.
+     */
+    private fun prefetchAhead(fromIndex: Int) {
+        val end = minOf(fromIndex + 1 + PREFETCH_AHEAD_COUNT, mediaFiles.size)
+        for (i in (fromIndex + 1) until end) {
+            if (i in prefetchedIndices) continue
+            prefetchedIndices.add(i)
+            val uri = mediaFiles[i]
+            prefetchExecutor.execute {
+                try {
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        val buf = ByteArray(64 * 1024)
+                        var readTotal = 0
+                        while (readTotal < PREFETCH_CHUNK_BYTES) {
+                            val n = stream.read(buf)
+                            if (n <= 0) break
+                            readTotal += n
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Najlepszy wysilek - jesli sie nie uda, ExoPlayer i tak zaladuje plik normalnie
+                }
+            }
+        }
     }
 
     private fun initGestureDetector() {
@@ -375,6 +456,7 @@ class PlayerActivity : AppCompatActivity() {
         // Zatrzymaj obecne odtwarzanie
         player.stop()
         player.clearMediaItems()
+        prefetchedIndices.clear()
 
         mediaFiles.clear()
         mediaNames.clear()
@@ -397,6 +479,10 @@ class PlayerActivity : AppCompatActivity() {
 
         // Przygotuj
         player.prepare()
+
+        // Wystartuj prefetch pierwszych plikow od razu, jeszcze przed odtwarzaniem
+        // (odpowiednik _start_initial_prefetch w player_mpv.py)
+        prefetchAhead(-1)
 
         // Aktualizuj UI
         directoryLabel.text = getString(R.string.directory_format, directoryName ?: "?")
@@ -607,11 +693,13 @@ class PlayerActivity : AppCompatActivity() {
                 mediaItems.add(MediaItem.fromUri(uri))
             }
 
+            prefetchedIndices.clear()
             player.stop()
             player.clearMediaItems()
             player.setMediaItems(mediaItems)
             player.repeatMode = if (isLooping) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
             player.prepare()
+            prefetchAhead(-1)
 
             updateFileCounter()
 
@@ -652,6 +740,7 @@ class PlayerActivity : AppCompatActivity() {
                     val targetIndex = number - 1
                     player.seekTo(targetIndex, 0)
                     updateFileCounter()
+                    prefetchAhead(targetIndex)
                     if (!player.isPlaying) {
                         player.play()
                     }
@@ -696,4 +785,3 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 }
-
